@@ -12,6 +12,7 @@ for i in range(len(task_name)):
     task_data.append(task)
 
 
+
 # Сохраняем данные в JSON-файл
 with open("data.json", "w") as file:
     json.dump(task_data, file, indent=4)  # Сохраняем список задач в JSON-файл
