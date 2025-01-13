@@ -1,68 +1,47 @@
 from aiogram import Bot, Dispatcher
 from aiogram.filters import Command
-from aiogram.types import Message
-from aiogram import BaseMiddleware
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.storage.memory import MemoryStorage
-import asyncio
 from datetime import datetime
+import asyncio
 
+# Токен и инициализация
 API_TOKEN = "7691260198:AAEGzqqiAJjUqNwBf440cwe9DxkdzcPcYXI"
-user_tasks = {}
 bot = Bot(token=API_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
-test333 = "github"
 
+# Словарь для задач
+user_tasks = {}
 
-
+# Определяем состояния
 class TaskStates(StatesGroup):
     waiting_for_task = State()
     waiting_for_task_number = State()
 
+# Создаем завуалированную клавиатуру
+main_menu = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="Добавить задачу"), KeyboardButton(text="Список задач")],
+        [KeyboardButton(text="Удалить задачу"), KeyboardButton(text="Помощь")],
+    ],
+    resize_keyboard=True  # Клавиатура будет компактной
+)
 
-
-@dp.errors()
-async def global_error_handler(update, exception):
-    print(f"Ошибка: {exception}")
-    if isinstance(exception, TelegramAPIError):
-        print("Произошла ошибка Telegram API")
-    return True  # Продолжить обработку
-
-class LoggingMiddleware(BaseMiddleware):
-    async def __call__(self, handler, event, data):
-        if isinstance(event, Message):
-            user_id = event.from_user.id
-            user_name = event.from_user.full_name
-            message_text = event.text
-            print(f"[{datetime.now()}] Сообщение от {user_name} (ID: {user_id}): {message_text}")
-        return await handler(event, data)
-
-
+# Команда /start
 @dp.message(Command("start"))
 async def start_command(message: Message):
     await message.reply(
         "Привет! 👋\n"
-        "Я твой Task Manager Бот. Вот что я умею:\n"
-        "1️⃣ /add - Добавить новую задачу.\n"
-        "2️⃣ /list - Показать список твоих задач.\n"
-        "3️⃣ /delete - Удалить задачу.\n"
-        "4️⃣ /help - Подсказка по командам.\n\n"
-        "Начнем планировать?"
+        "Я твой Task Manager Бот. Используй кнопки ниже для управления задачами.",
+        reply_markup=main_menu
     )
 
-@dp.message(Command("list"))
-async def list_command(message: Message):
-    user_id = message.from_user.id
-    if user_id not in user_tasks or not user_tasks[user_id]:
-        await message.reply("У вас пока нет задач.")
-    else:
-        tasks = "\n".join([f"📌 {i + 1}. {task}" for i, task in enumerate(user_tasks[user_id])])
-        await message.reply(f"Ваши задачи:\n{tasks}")
-
-@dp.message(Command("add"))
+# Завуалированное добавление задачи
+@dp.message(lambda msg: msg.text == "Добавить задачу")
 async def add_command(message: Message, state: FSMContext):
     await message.reply("Введите текст задачи:")
     await state.set_state(TaskStates.waiting_for_task)
@@ -77,10 +56,32 @@ async def process_task_text(message: Message, state: FSMContext):
     if user_id not in user_tasks:
         user_tasks[user_id] = []
     user_tasks[user_id].append(task)
-    await message.reply(f"Задача '{task}' добавлена!")
+    await message.reply(f"Задача '{task}' добавлена!", reply_markup=main_menu)
     await state.clear()
 
-@dp.message(Command("delete"))
+# Завуалированный список задач
+@dp.message(lambda msg: msg.text == "Список задач")
+async def list_command(message: Message):
+    user_id = message.from_user.id
+    if user_id not in user_tasks or not user_tasks[user_id]:
+        await message.reply("У вас пока нет задач.")
+    else:
+        tasks = "\n".join([f"📌 {i + 1}. {task}" for i, task in enumerate(user_tasks[user_id])])
+        await message.reply(f"Ваши задачи:\n{tasks}")
+
+#Обработка команды "помощь"
+@dp.message(lambda msg: msg.text == "Помощь")
+async def help_command(message: Message):
+    await message.reply(
+        "Используйте кнопки ниже для управления задачами:\n"
+        "1 Добавить задачу\n"
+        "2 Список задач\n"
+        "3 Удалить задачу\n"
+        "4 Помощь"
+    )
+
+# Завуалированное удаление задачи
+@dp.message(lambda msg: msg.text == "Удалить задачу")
 async def delete_command(message: Message, state: FSMContext):
     user_id = message.from_user.id
     if user_id not in user_tasks or not user_tasks[user_id]:
@@ -98,19 +99,26 @@ async def process_task_number(message: Message, state: FSMContext):
         if task_number < 0 or task_number >= len(user_tasks[user_id]):
             raise ValueError
         removed_task = user_tasks[user_id].pop(task_number)
-        await message.reply(f"Задача '{removed_task}' удалена!")
+        await message.reply(f"Задача '{removed_task}' удалена!", reply_markup=main_menu)
         await state.clear()
     except (ValueError, IndexError):
         await message.reply("Некорректный номер задачи. Попробуйте снова.")
 
+
+@dp.message()
+async def echo(message: Message):
+    print(f"[{datetime.now()}] Сообщение от {message.from_user.full_name} (ID: {message.from_user.id}): {message.text}")
+
+
+# Запуск бота
 async def main():
-    dp.update.middleware(LoggingMiddleware())
     dp.message.register(start_command, Command("start"))
-    dp.message.register(list_command, Command("list"))
-    dp.message.register(add_command, Command("add"))
-    dp.message.register(delete_command, Command("delete"))
+    dp.message.register(add_command, lambda msg: msg.text == "Добавить задачу")
+    dp.message.register(list_command, lambda msg: msg.text == "Список задач")
+    dp.message.register(delete_command, lambda msg: msg.text == "Удалить задачу")
     dp.message.register(process_task_text, TaskStates.waiting_for_task)
     dp.message.register(process_task_number, TaskStates.waiting_for_task_number)
+    dp.message.register(echo)
 
     print("Бот запущен!")
     await dp.start_polling(bot)
